@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import 'dotenv/config';
 import { Command } from 'commander';
-import { setVerbose } from './utils/logger.ts';
+import { setVerbose, banner } from './utils/logger.ts';
 import { registerRecord } from './commands/record.ts';
 import { registerTranscribe } from './commands/transcribe.ts';
 import { registerScenario } from './commands/scenario.ts';
@@ -29,6 +29,10 @@ program
     if (program.opts().verbose) {
       setVerbose(true);
     }
+  })
+  .addHelpText('beforeAll', () => {
+    banner('1.0.0');
+    return '';
   });
 
 registerInit(program);

@@ -53,10 +53,7 @@ export function registerRun(program: Command) {
 
       if (result.success) {
         log.header('Pipeline Summary');
-        for (const s of result.steps) {
-          const icon = s.result.success ? '  \u2713' : '  \u2717';
-          log.info(`${icon} ${s.name} (${(s.durationMs / 1000).toFixed(1)}s)`);
-        }
+        log.summary(result.steps);
       } else {
         process.exit(1);
       }
