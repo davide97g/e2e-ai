@@ -12,5 +12,8 @@ bun.lock
 # Test output
 test-results/
 
+# Worktrees
+.worktrees/
+
 # OS
 .DS_Store
