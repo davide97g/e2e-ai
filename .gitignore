@@ -1,0 +1,16 @@
+node_modules/
+dist/
+bun.lock
+
+# Working directories (user-generated artifacts)
+.e2e-ai/
+
+# Environment
+.env
+.env.*
+
+# Test output
+test-results/
+
+# OS
+.DS_Store

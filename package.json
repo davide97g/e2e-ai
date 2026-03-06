@@ -1,0 +1,44 @@
+{
+  "name": "e2e-ai",
+  "description": "AI-powered test automation pipeline — record, transcribe, generate, heal and ship Playwright tests from a single CLI",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "e2e-ai": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/schema.d.ts",
+      "import": "./dist/config/schema.js"
+    }
+  },
+  "files": [
+    "dist",
+    "agents",
+    "scripts",
+    "templates"
+  ],
+  "scripts": {
+    "build": "bun build src/cli.ts src/index.ts src/config/schema.ts --outdir ./dist --target node --format esm --splitting",
+    "dev": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1",
+    "dotenv": "^17.2.0",
+    "zod": "^4.0.5",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.14",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.40.0"
+  }
+}
