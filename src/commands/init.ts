@@ -1,11 +1,13 @@
 import type { Command } from 'commander';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
+import { select, confirm, input } from '@inquirer/prompts';
+import pc from 'picocolors';
 import { writeFile, fileExists, ensureDir } from '../utils/fs.ts';
 import { loadAgent } from '../agents/loadAgent.ts';
 import { callLLM } from '../agents/callLLM.ts';
 import { getProjectRoot, getPackageRoot } from '../config/loader.ts';
 import { DEFAULT_CONFIG } from '../config/defaults.ts';
+import { createSpinner } from '../utils/ui.ts';
 import * as log from '../utils/logger.ts';
 
 export function registerInit(program: Command) {
@@ -28,12 +30,10 @@ export function registerInit(program: Command) {
 
       if (fileExists(configPath)) {
         log.warn(`Config already exists: ${configPath}`);
-        const rl = createInterface({ input: process.stdin, output: process.stdout });
-        const overwrite = await new Promise<string>((resolve) => {
-          rl.question('Overwrite? (y/N) ', resolve);
-        });
-        rl.close();
-        if (overwrite.toLowerCase() !== 'y') {
+        const overwrite = cmdOpts?.nonInteractive
+          ? false
+          : await confirm({ message: 'Overwrite existing config?', default: false });
+        if (!overwrite) {
           log.info('Skipping config generation');
         } else {
           writeFile(configPath, generateConfigFile(config));
@@ -50,8 +50,10 @@ export function registerInit(program: Command) {
         const provider = (opts.provider ?? process.env.AI_PROVIDER ?? answers.provider ?? 'openai') as 'openai' | 'anthropic';
         const model = opts.model ?? process.env.AI_MODEL;
 
-        log.info('\nScanning codebase for test patterns...');
+        const spinner = createSpinner();
+        spinner.start('Scanning codebase for test patterns...');
         const scan = await scanCodebase(projectRoot);
+        spinner.stop();
 
         if (scan.testFiles.length === 0 && scan.configFiles.length === 0) {
           log.warn('No test files found. Skipping context generation.');
@@ -91,23 +93,51 @@ function getDefaultAnswers(): ConfigAnswers {
 }
 
 async function askConfigQuestions(): Promise<ConfigAnswers> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
-
   log.info('Configure your e2e-ai setup:\n');
 
-  const inputSource = await ask('Issue tracker? (jira/linear/none) [none]: ') || 'none';
-  const outputTarget = await ask('QA documentation format? (zephyr/markdown/both) [markdown]: ') || 'markdown';
-  const voiceInput = await ask('Enable voice recording? (yes/no) [yes]: ') || 'yes';
-  const provider = await ask('LLM provider? (openai/anthropic) [openai]: ') || 'openai';
-  const baseUrl = (await ask(`Base URL? [${process.env.BASE_URL ?? ''}]: `)) || (process.env.BASE_URL ?? '');
+  const inputSource = await select({
+    message: 'Issue tracker',
+    choices: [
+      { name: 'None', value: 'none' },
+      { name: 'Jira', value: 'jira' },
+      { name: 'Linear', value: 'linear' },
+    ],
+    default: 'none',
+  });
 
-  rl.close();
+  const outputTarget = await select({
+    message: 'QA documentation format',
+    choices: [
+      { name: 'Markdown', value: 'markdown' },
+      { name: 'Zephyr', value: 'zephyr' },
+      { name: 'Both', value: 'both' },
+    ],
+    default: 'markdown',
+  });
+
+  const voiceEnabled = await confirm({
+    message: 'Enable voice recording?',
+    default: true,
+  });
+
+  const provider = await select({
+    message: 'LLM provider',
+    choices: [
+      { name: 'OpenAI', value: 'openai' },
+      { name: 'Anthropic', value: 'anthropic' },
+    ],
+    default: 'openai',
+  });
+
+  const baseUrl = await input({
+    message: 'Base URL',
+    default: process.env.BASE_URL ?? '',
+  });
 
   return {
     inputSource,
     outputTarget,
-    voiceEnabled: voiceInput.toLowerCase() !== 'no',
+    voiceEnabled,
     provider,
     baseUrl,
   };
@@ -237,8 +267,7 @@ async function runInitConversation(
   model?: string,
 ): Promise<string | null> {
   const agent = loadAgent('init-agent');
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
+  const separator = pc.dim('─'.repeat(60));
 
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
@@ -259,6 +288,8 @@ async function runInitConversation(
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const userContent = messages.filter(m => m.role === 'user').map(m => m.content).join('\n\n---\n\n');
 
+    const spinner = createSpinner();
+    spinner.start('Thinking...');
     const resp = await callLLM({
       provider,
       model: model ?? agent.config.model,
@@ -267,6 +298,7 @@ async function runInitConversation(
       maxTokens: agent.config.maxTokens,
       temperature: agent.config.temperature,
     });
+    spinner.stop();
 
     const assistantContent = resp.content.trim();
     messages.push({ role: 'assistant', content: assistantContent });
@@ -274,13 +306,17 @@ async function runInitConversation(
     // Check if agent produced final context
     const contextMatch = assistantContent.match(/<context>([\s\S]*?)<\/context>/);
     if (contextMatch) {
-      rl.close();
       return contextMatch[1].trim();
     }
 
-    // Display agent's message and ask for user input
-    console.log('\n' + assistantContent + '\n');
-    const answer = await ask('Your answer (or "done" to let the agent finalize): ');
+    // Display agent's message with visual separators
+    console.log('\n' + separator);
+    console.log(assistantContent);
+    console.log(separator + '\n');
+
+    const answer = await input({
+      message: 'Your answer (or "done" to let the agent finalize)',
+    });
 
     if (answer.toLowerCase() === 'done') {
       messages.push({ role: 'user', content: 'Please produce the final context document now based on what you know. Wrap it in <context> tags.' });
@@ -289,7 +325,6 @@ async function runInitConversation(
     }
   }
 
-  rl.close();
   log.warn('Max conversation turns reached. Context may be incomplete.');
   return null;
 }
