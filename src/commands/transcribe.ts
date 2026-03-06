@@ -4,6 +4,7 @@ import { readFile, writeFile, fileExists, findFileWithPattern } from '../utils/f
 import { getPackageRoot } from '../config/loader.ts';
 import { resolveCommandContext } from './_shared.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 
 export function registerTranscribe(program: Command) {
   program
@@ -33,10 +34,11 @@ export function registerTranscribe(program: Command) {
         process.exit(1);
       }
 
-      log.info(`Transcribing: ${wavPath}`);
-
+      const spinner = createSpinner();
+      spinner.start(`Transcribing: ${wavPath}`);
       const transcriber = await import(join(pkgRoot, 'scripts', 'voice', 'transcriber.mjs'));
       const segments = await transcriber.transcribe(wavPath);
+      spinner.stop();
 
       if (!segments || segments.length === 0) {
         log.warn('No speech segments detected');
@@ -64,13 +66,15 @@ export function registerTranscribe(program: Command) {
         const codegenDir = join(ctx.paths.workingDir, ctx.key);
         const codegenFile = findFileWithPattern(codegenDir, /codegen-.*\.ts$/);
         if (codegenFile) {
-          log.info('Merging voice comments into codegen...');
+          const mergeSpinner = createSpinner();
+          mergeSpinner.start('Merging voice comments into codegen...');
           const merger = await import(join(pkgRoot, 'scripts', 'voice', 'merger.mjs'));
           const codegenContent = readFile(codegenFile);
           const lastSegment = segments[segments.length - 1];
           const duration = lastSegment.end;
           const merged = merger.merge(codegenContent, segments, duration);
           writeFile(codegenFile, merged);
+          mergeSpinner.stop();
           log.success(`Voice comments merged into: ${codegenFile}`);
         }
       }

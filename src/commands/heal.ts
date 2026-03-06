@@ -6,6 +6,7 @@ import { callLLM } from '../agents/callLLM.ts';
 import { runPlaywrightTest } from './test.ts';
 import { resolveCommandContext } from './_shared.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 
 const MAX_HEAL_RETRIES = 3;
 
@@ -34,8 +35,10 @@ export function registerHeal(program: Command) {
       }
 
       // First, run the test to confirm it fails
-      log.info('Running test to confirm failure...');
+      const initialSpinner = createSpinner();
+      initialSpinner.start('Running test to confirm failure...');
       let testResult = await runPlaywrightTest(testPath, root);
+      initialSpinner.stop();
 
       if (testResult.passed) {
         log.success('Test is already passing, no healing needed');
@@ -50,6 +53,8 @@ export function registerHeal(program: Command) {
 
         const testContent = readFile(testPath);
 
+        const spinner = createSpinner();
+        spinner.start('Analyzing failure...');
         const response = await callLLM({
           provider: ctx.provider,
           model: ctx.model ?? agent.config.model,
@@ -64,6 +69,7 @@ export function registerHeal(program: Command) {
           maxTokens: agent.config.maxTokens,
           temperature: agent.config.temperature,
         });
+        spinner.stop();
 
         let healResult: any;
         try {
@@ -87,9 +93,10 @@ export function registerHeal(program: Command) {
         }
 
         writeFile(testPath, patchedTest);
-        log.info('Patched test written, re-running...');
-
+        const rerunSpinner = createSpinner();
+        rerunSpinner.start('Re-running test...');
         testResult = await runPlaywrightTest(testPath, root);
+        rerunSpinner.stop();
 
         if (testResult.passed) {
           log.success(`Test healed after ${attempt} attempt(s)!`);

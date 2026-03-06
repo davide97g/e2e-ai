@@ -5,6 +5,7 @@ import { loadAgent } from '../agents/loadAgent.ts';
 import { callLLM } from '../agents/callLLM.ts';
 import { resolveCommandContext } from './_shared.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 
 export function registerRefine(program: Command) {
   program
@@ -36,6 +37,8 @@ export function registerRefine(program: Command) {
       // Feature methods and utility patterns come from the two-part prompt system
       // (project context file appended to agent prompt). Pass empty strings as fallback.
       const agent = loadAgent('refactor-agent', ctx.config);
+      const spinner = createSpinner();
+      spinner.start('Refining test with AI...');
       const response = await callLLM({
         provider: ctx.provider,
         model: ctx.model ?? agent.config.model,
@@ -48,6 +51,7 @@ export function registerRefine(program: Command) {
         maxTokens: agent.config.maxTokens,
         temperature: agent.config.temperature,
       });
+      spinner.stop();
 
       let refined = response.content.trim();
       if (refined.startsWith('```')) {

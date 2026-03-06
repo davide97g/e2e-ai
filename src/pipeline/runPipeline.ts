@@ -1,4 +1,5 @@
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 import type { PipelineContext, PipelineStep, PipelineResult, StepResult } from './types.ts';
 
 export async function runPipeline(
@@ -36,6 +37,8 @@ export async function runPipeline(
     }
 
     log.step(i + 1, steps.length, s.name, s.description);
+    const spinner = createSpinner();
+    spinner.start(`Running ${s.name}...`);
     const stepStart = Date.now();
 
     let result: StepResult;
@@ -45,6 +48,7 @@ export async function runPipeline(
       result = { success: false, output: null, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
+    spinner.stop();
     const durationMs = Date.now() - stepStart;
     results.push({ name: s.name, result, durationMs });
 

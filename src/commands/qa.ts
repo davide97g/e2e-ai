@@ -6,6 +6,7 @@ import { callLLM } from '../agents/callLLM.ts';
 import { resolveCommandContext } from './_shared.ts';
 import { fetchIssueContext, generateQaExport } from '../integrations/index.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 
 export function registerQa(program: Command) {
   program
@@ -57,7 +58,8 @@ export function registerQa(program: Command) {
       }
 
       // Call LLM
-      log.info('Generating QA documentation...');
+      const spinner = createSpinner();
+      spinner.start('Generating QA documentation...');
       const agent = loadAgent('qa-testcase-agent', ctx.config);
       const response = await callLLM({
         provider: ctx.provider,
@@ -73,6 +75,7 @@ export function registerQa(program: Command) {
         maxTokens: agent.config.maxTokens,
         temperature: agent.config.temperature,
       });
+      spinner.stop();
 
       let qaResult: any;
       try {

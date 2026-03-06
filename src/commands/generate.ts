@@ -6,6 +6,7 @@ import { callLLM } from '../agents/callLLM.ts';
 import { resolveCommandContext } from './_shared.ts';
 import { generateQaExport } from '../integrations/index.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 
 export function registerGenerate(program: Command) {
   program
@@ -38,7 +39,8 @@ export function registerGenerate(program: Command) {
       const scenario = yaml.parse(readFile(scenarioPath));
 
       // Call LLM — project context comes from the two-part prompt system (context file)
-      log.info('Generating test with playwright-generator-agent...');
+      const spinner = createSpinner();
+      spinner.start('Generating test with playwright-generator-agent...');
       const agent = loadAgent('playwright-generator-agent', ctx.config);
       const response = await callLLM({
         provider: ctx.provider,
@@ -51,6 +53,7 @@ export function registerGenerate(program: Command) {
         maxTokens: agent.config.maxTokens,
         temperature: agent.config.temperature,
       });
+      spinner.stop();
 
       let testContent = response.content.trim();
       if (testContent.startsWith('```')) {

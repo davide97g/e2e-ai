@@ -7,6 +7,7 @@ import { extractJSON, extractYAML } from '../agents/parseResponse.ts';
 import { resolveCommandContext } from './_shared.ts';
 import { fetchIssueContext } from '../integrations/index.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 
 export function registerScenario(program: Command) {
   program
@@ -53,7 +54,8 @@ export function registerScenario(program: Command) {
       // Step 1: Transcript analysis (if transcript available)
       let narrative: any;
       if (transcriptContent) {
-        log.info('Analyzing transcript with transcript-agent...');
+        const spinner1 = createSpinner();
+        spinner1.start('Analyzing transcript...');
         const transcriptAgent = loadAgent('transcript-agent', ctx.config);
         const transcriptResponse = await callLLM({
           provider: ctx.provider,
@@ -67,6 +69,7 @@ export function registerScenario(program: Command) {
           temperature: transcriptAgent.config.temperature,
           jsonMode: true,
         });
+        spinner1.stop();
         narrative = JSON.parse(extractJSON(transcriptResponse.content));
         log.success(`Narrative generated: ${narrative.sessionSummary}`);
       } else {
@@ -86,7 +89,8 @@ export function registerScenario(program: Command) {
       }
 
       // Step 2: Scenario generation
-      log.info('Generating scenario with scenario-agent...');
+      const spinner2 = createSpinner();
+      spinner2.start('Generating scenario...');
       const scenarioAgent = loadAgent('scenario-agent', ctx.config);
       const scenarioResponse = await callLLM({
         provider: ctx.provider,
@@ -100,6 +104,7 @@ export function registerScenario(program: Command) {
         maxTokens: scenarioAgent.config.maxTokens,
         temperature: scenarioAgent.config.temperature,
       });
+      spinner2.stop();
 
       const scenarioYaml = extractYAML(scenarioResponse.content);
 

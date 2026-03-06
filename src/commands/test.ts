@@ -6,6 +6,7 @@ import { resolveCommandContext } from './_shared.ts';
 import { loadConfig, getProjectRoot } from '../config/loader.ts';
 import { resolvePaths } from '../config/paths.ts';
 import * as log from '../utils/logger.ts';
+import { createSpinner } from '../utils/ui.ts';
 import type { TestResult } from '../types/index.ts';
 
 export function registerTest(program: Command) {
@@ -32,7 +33,10 @@ export function registerTest(program: Command) {
         process.exit(1);
       }
 
+      const spinner = createSpinner();
+      spinner.start('Running Playwright test...');
       const result = await runPlaywrightTest(testPath, root);
+      spinner.stop();
 
       if (result.passed) {
         log.success(`Test PASSED (exit code ${result.exitCode})`);
