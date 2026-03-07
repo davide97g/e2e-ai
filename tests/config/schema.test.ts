@@ -8,7 +8,7 @@ describe('E2eAiConfigSchema', () => {
     expect(result.outputTarget).toBe('markdown');
     expect(result.keyPattern).toBeNull();
     expect(result.baseUrl).toBeNull();
-    expect(result.contextFile).toBe('e2e-ai.context.md');
+    expect(result.contextFile).toBe('.e2e-ai/context.md');
   });
 
   test('nested paths defaults apply when paths is omitted', () => {

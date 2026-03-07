@@ -41,12 +41,17 @@ export function getProjectRoot(): string {
 
 /**
  * Resolve the package root (where the e2e-ai package itself lives).
- * Works both in development (monorepo) and when installed in node_modules.
+ * Works both in development (src/config/) and when bundled (dist/).
+ * Walks up from the current file's directory until it finds package.json.
  */
 export function getPackageRoot(): string {
-  // import.meta.dirname points to the directory of this file: src/config/
-  // Package root is two levels up: src/config/ -> src/ -> packages/e2e-ai/
-  return resolve(import.meta.dirname, '..', '..');
+  let dir = import.meta.dirname;
+  while (!existsSync(join(dir, 'package.json'))) {
+    const parent = dirname(dir);
+    if (parent === dir) return dir;
+    dir = parent;
+  }
+  return dir;
 }
 
 /**

@@ -52,7 +52,7 @@ export const E2eAiConfigSchema = z.object({
   voice: nested(VoiceSchema.shape),
   llm: nested(LlmSchema.shape),
   playwright: nested(PlaywrightSchema.shape),
-  contextFile: z.string().default('e2e-ai.context.md'),
+  contextFile: z.string().default('.e2e-ai/context.md'),
   integrations: nested(IntegrationsSchema.shape),
 });
 

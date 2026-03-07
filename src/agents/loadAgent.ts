@@ -6,14 +6,15 @@ import type { AgentPrompt, AgentConfig } from './types.ts';
 
 /**
  * Load an agent prompt with optional two-part composition:
- * 1. Generic prompt from the package's agents/ directory
- * 2. Project context from the user's e2e-ai.context.md (if exists)
+ * 1. Agent prompt — prefers .e2e-ai/agents/ over package defaults
+ * 2. Project context from .e2e-ai/context.md (if exists)
  *
  * When `config` is provided, per-agent model overrides are applied.
  */
 export function loadAgent(agentName: string, config?: ResolvedConfig): AgentPrompt {
-  const agentDir = join(getPackageRoot(), 'agents');
-  const filePath = join(agentDir, `${agentName}.md`);
+  const localPath = join(getProjectRoot(), '.e2e-ai', 'agents', `${agentName}.md`);
+  const packagePath = join(getPackageRoot(), 'agents', `${agentName}.md`);
+  const filePath = existsSync(localPath) ? localPath : packagePath;
 
   let content: string;
   try {
@@ -28,7 +29,7 @@ export function loadAgent(agentName: string, config?: ResolvedConfig): AgentProm
   // Two-part composition: append project context if available
   let systemPrompt = body;
   if (config) {
-    const contextPath = join(getProjectRoot(), config.contextFile);
+    const contextPath = join(getProjectRoot(), '.e2e-ai', 'context.md');
     if (existsSync(contextPath)) {
       const projectContext = readFileSync(contextPath, 'utf-8').trim();
       if (projectContext) {
