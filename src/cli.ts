@@ -12,6 +12,8 @@ import { registerHeal } from './commands/heal.ts';
 import { registerQa } from './commands/qa.ts';
 import { registerRun } from './commands/run.ts';
 import { registerInit } from './commands/init.ts';
+import { registerScan } from './commands/scan.ts';
+import { registerPush } from './commands/push.ts';
 
 const program = new Command();
 
@@ -45,5 +47,7 @@ registerTest(program);
 registerHeal(program);
 registerQa(program);
 registerRun(program);
+registerScan(program);
+registerPush(program);
 
 program.parse();
