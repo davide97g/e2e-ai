@@ -496,7 +496,7 @@ function executeStep(
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: 'e2e-ai', version: '1.5.0' },
+  { name: 'e2e-ai', version: '1.5.1' },
   { instructions: SERVER_INSTRUCTIONS },
 );
 
