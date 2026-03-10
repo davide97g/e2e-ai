@@ -7,6 +7,10 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { loadAgent } from './agents/loadAgent.ts';
 import { getPackageRoot } from './config/loader.ts';
+import { runStage1 } from './scanner/scanner.ts';
+import { summarizeAST, filterASTByCategory } from './scanner/summarize.ts';
+import { validateQAMap } from './scanner/validate.ts';
+import type { ASTScanResult } from './scanner/types.ts';
 import { scanCodebase } from './utils/scan.ts';
 import { validateContext } from './utils/validateContext.ts';
 
@@ -67,6 +71,20 @@ The \`record\` step opens a browser and requires user interaction. When the plan
 - **Single step**: any individual command
 
 Always use \`e2e_ai_plan_workflow\` to determine the right steps — don't guess.
+
+## Scanner Analysis (Interactive QA Map)
+
+For deep codebase analysis and QA map generation, use the interactive scanner workflow instead of the CLI pipeline:
+
+1. **Load the protocol.** Call \`e2e_ai_read_agent("scanner-agent")\` — this returns the full interactive protocol.
+2. **Scan.** Call \`e2e_ai_scan_ast()\` to run the AST scanner and get a compact summary.
+3. **Explore.** Use \`e2e_ai_scan_ast_detail()\` to drill into routes, components, hooks, or files.
+4. **Propose & discuss.** Present candidate features to the user, ask clarifying questions.
+5. **Build.** Construct the QA map payload and validate with \`e2e_ai_build_qa_map({ dryRun: true })\`.
+6. **Write.** Once validated and approved, call \`e2e_ai_build_qa_map({ dryRun: false })\` to save.
+7. **Read existing.** Use \`e2e_ai_read_qa_map()\` to load a previously generated QA map for incremental updates.
+
+This approach is preferred over \`scan → analyze\` CLI steps because it allows interactive refinement with the user.
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -523,7 +541,7 @@ server.registerTool(
   'e2e_ai_read_agent',
   {
     title: 'Read Agent',
-    description: 'Read an agent prompt definition by name. Returns the agent system prompt and config. Agents: transcript-agent, scenario-agent, playwright-generator-agent, refactor-agent, self-healing-agent, qa-testcase-agent, feature-analyzer-agent, scenario-planner-agent, init-agent.',
+    description: 'Read an agent prompt definition by name. Returns the agent system prompt and config. Agents: transcript-agent, scenario-agent, playwright-generator-agent, refactor-agent, self-healing-agent, qa-testcase-agent, feature-analyzer-agent, scenario-planner-agent, scanner-agent, init-agent.',
     inputSchema: z.object({
       agentName: z.string().describe('Agent name (e.g. scenario-agent, playwright-generator-agent)'),
     }),
@@ -700,6 +718,190 @@ server.registerTool(
     } catch (err: any) {
       return {
         content: [{ type: 'text', text: `Error: ${err.message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// --- Scanner tools ---
+
+server.registerTool(
+  'e2e_ai_scan_ast',
+  {
+    title: 'Scan AST',
+    description:
+      'Run the deep AST scanner on the codebase. Returns a compact summary (stats, routes, components, hooks, directory groups). ' +
+      'The full AST is saved to .e2e-ai/ast-scan.json for follow-up queries via e2e_ai_scan_ast_detail.',
+    inputSchema: z.object({
+      scanDir: z.string().optional().describe('Directory to scan (defaults to "src")'),
+      include: z.array(z.string()).optional().describe('Glob patterns to include (defaults to ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"])'),
+      exclude: z.array(z.string()).optional().describe('Glob patterns to exclude (defaults to common non-source dirs)'),
+    }),
+  },
+  async ({ scanDir, include, exclude }) => {
+    try {
+      const cwd = process.cwd();
+      const dir = scanDir ?? 'src';
+      const scanConfig = {
+        scanDir: join(cwd, dir),
+        include: include ?? ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
+        exclude: exclude ?? ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/*.test.*', '**/*.spec.*', '**/__tests__/**'],
+        cacheDir: join(cwd, '.e2e-ai', 'cache'),
+      };
+
+      const ast = await runStage1(scanConfig);
+
+      // Save full AST
+      const astPath = join(cwd, '.e2e-ai', 'ast-scan.json');
+      const { mkdirSync, writeFileSync } = await import('node:fs');
+      mkdirSync(join(cwd, '.e2e-ai'), { recursive: true });
+      writeFileSync(astPath, JSON.stringify(ast, null, 2));
+
+      const summary = summarizeAST(ast, astPath);
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: 'text', text: `Error scanning AST: ${err.message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.registerTool(
+  'e2e_ai_scan_ast_detail',
+  {
+    title: 'Scan AST Detail',
+    description:
+      'Retrieve a filtered slice of the AST scan. Requires a prior e2e_ai_scan_ast call. ' +
+      'Use to drill into routes, components, hooks, dependencies, or files.',
+    inputSchema: z.object({
+      category: z.enum(['routes', 'components', 'hooks', 'dependencies', 'files']).describe('Which AST category to retrieve'),
+      filter: z.string().optional().describe('Glob pattern to filter results (e.g. "src/app/**", "Dashboard*")'),
+      limit: z.number().optional().describe('Max number of items to return'),
+    }),
+  },
+  async ({ category, filter, limit }) => {
+    try {
+      const astPath = join(process.cwd(), '.e2e-ai', 'ast-scan.json');
+      if (!existsSync(astPath)) {
+        return {
+          content: [{ type: 'text', text: 'Error: No AST scan found. Run e2e_ai_scan_ast first.' }],
+          isError: true,
+        };
+      }
+      const ast: ASTScanResult = JSON.parse(readFileSync(astPath, 'utf-8'));
+      const result = filterASTByCategory(ast, category, filter, limit);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: 'text', text: `Error reading AST detail: ${err.message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.registerTool(
+  'e2e_ai_build_qa_map',
+  {
+    title: 'Build QA Map',
+    description:
+      'Validate and optionally write a QAMapV2Payload. Use dryRun: true to validate without writing. ' +
+      'Returns validation result with errors, warnings, and stats.',
+    inputSchema: z.object({
+      payload: z.any().describe('QAMapV2Payload JSON object with features, workflows, components, scenarios'),
+      output: z.string().optional().describe('Output file path (defaults to .e2e-ai/qa-map.json)'),
+      dryRun: z.boolean().optional().describe('If true, validate only without writing (default: false)'),
+    }),
+  },
+  async ({ payload, output, dryRun }) => {
+    try {
+      const validation = validateQAMap(payload);
+
+      // Add commitSha if not present
+      if (validation.valid && payload && typeof payload === 'object') {
+        try {
+          const sha = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
+          (payload as any).commitSha = sha;
+        } catch {
+          // Not a git repo or git not available — skip
+        }
+      }
+
+      const outputPath = output ?? join(process.cwd(), '.e2e-ai', 'qa-map.json');
+      let written = false;
+
+      if (validation.valid && !dryRun) {
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        const { dirname } = await import('node:path');
+        mkdirSync(dirname(outputPath), { recursive: true });
+        writeFileSync(outputPath, JSON.stringify(payload, null, 2));
+        written = true;
+      }
+
+      const p = payload as any;
+      const stats = validation.valid
+        ? {
+            features: Array.isArray(p?.features) ? p.features.length : 0,
+            workflows: Array.isArray(p?.workflows) ? p.workflows.length : 0,
+            components: Array.isArray(p?.components) ? p.components.length : 0,
+            scenarios: Array.isArray(p?.scenarios) ? p.scenarios.length : 0,
+          }
+        : null;
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            valid: validation.valid,
+            errors: validation.errors,
+            warnings: validation.warnings,
+            written,
+            outputPath: written ? outputPath : null,
+            stats,
+          }, null, 2),
+        }],
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: 'text', text: `Error building QA map: ${err.message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.registerTool(
+  'e2e_ai_read_qa_map',
+  {
+    title: 'Read QA Map',
+    description: 'Read an existing QA map file. Returns the parsed QAMapV2Payload or null if not found.',
+    inputSchema: z.object({
+      path: z.string().optional().describe('Path to QA map file (defaults to .e2e-ai/qa-map.json)'),
+    }),
+  },
+  async ({ path }) => {
+    try {
+      const mapPath = path ?? join(process.cwd(), '.e2e-ai', 'qa-map.json');
+      if (!existsSync(mapPath)) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify(null) }],
+        };
+      }
+      const content = readFileSync(mapPath, 'utf-8');
+      return {
+        content: [{ type: 'text', text: content }],
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: 'text', text: `Error reading QA map: ${err.message}` }],
         isError: true,
       };
     }

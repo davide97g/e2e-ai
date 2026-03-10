@@ -141,6 +141,16 @@ export interface QAMapV2Payload {
   metadata?: Record<string, unknown>;
 }
 
+export interface ASTSummary {
+  stats: { totalFiles: number; totalLines: number };
+  routes: Array<{ path: string; filePath: string; isDynamic: boolean }>;
+  fileTree: string[];
+  componentNames: string[];
+  hookNames: string[];
+  directoryGroups: Record<string, number>;
+  astScanPath: string;
+}
+
 export interface PushResult {
   version: number;
   schemaVersion: number;
