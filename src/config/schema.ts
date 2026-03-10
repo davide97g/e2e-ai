@@ -43,6 +43,27 @@ const IntegrationsSchema = z.object({
   zephyr: ZephyrSchema.nullable().default(null),
 });
 
+const ScannerSchema = z.object({
+  scanDir: z.string().default('src'),
+  include: z.array(z.string()).default(['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx']),
+  exclude: z.array(z.string()).default([
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/build/**',
+    '**/.next/**',
+    '**/*.test.*',
+    '**/*.spec.*',
+    '**/__tests__/**',
+    '**/*.d.ts',
+  ]),
+  cacheDir: z.string().default('.e2e-ai/scan-cache'),
+});
+
+const PushSchema = z.object({
+  apiUrl: z.string().nullable().default(null),
+  apiKey: z.string().nullable().default(null),
+});
+
 export const E2eAiConfigSchema = z.object({
   inputSource: z.enum(['jira', 'linear', 'none']).default('none'),
   outputTarget: z.enum(['zephyr', 'markdown', 'both']).default('markdown'),
@@ -54,6 +75,8 @@ export const E2eAiConfigSchema = z.object({
   playwright: nested(PlaywrightSchema.shape),
   contextFile: z.string().default('.e2e-ai/context.md'),
   integrations: nested(IntegrationsSchema.shape),
+  scanner: nested(ScannerSchema.shape),
+  push: nested(PushSchema.shape),
 });
 
 export type E2eAiConfig = z.input<typeof E2eAiConfigSchema>;
