@@ -8,7 +8,9 @@ This is a standalone npm package (not a monorepo). It provides a CLI (`e2e-ai`) 
 
 ### What it does
 
-Pipeline: `record -> transcribe -> scenario -> generate -> refine -> test -> heal -> qa`
+Two pipelines:
+- **Test pipeline**: `record -> transcribe -> scenario -> generate -> refine -> test -> heal -> qa`
+- **Scanner pipeline**: `scan -> analyze -> push`
 
 Each step uses an LLM agent (defined in `agents/*.md`) to transform artifacts. The package is framework-agnostic — project-specific knowledge comes from a user-generated `e2e-ai.context.md` file (created via `e2e-ai init`).
 
@@ -29,6 +31,9 @@ src/
     init.ts                 # Interactive setup wizard (scans codebase + LLM conversation)
     record.ts, transcribe.ts, scenario.ts, generate.ts,
     refine.ts, test.ts, heal.ts, qa.ts, run.ts
+    scan.ts                 # AST codebase scanner (Stage 1)
+    analyze.ts              # AI feature/scenario analysis (Stages 2-3)
+    push.ts                 # Push QA map to remote API
   pipeline/
     runPipeline.ts          # Sequential step runner with --from/--skip support
     types.ts                # PipelineContext, PipelineStep interfaces
@@ -39,9 +44,20 @@ src/
   agents/
     loadAgent.ts            # Two-part prompt: generic .md + project context file
     callLLM.ts              # Fetch-based OpenAI/Anthropic client (no SDK dep)
+    parseResponse.ts        # Extract JSON/YAML/code from LLM responses
     types.ts                # AgentPrompt, LLMRequest, LLMResponse
+  scanner/
+    types.ts                # AST + QA map V2 type definitions
+    scanner.ts              # Stage 1 orchestrator (file collection, parsing, caching)
+    push.ts                 # Remote API push client
+    parsers/
+      base.ts               # LanguageParser interface + ParseResult type
+      typescript.ts          # Regex-based TS/TSX/JS/JSX parser
+    extractors/
+      routes.ts             # Next.js App Router + Pages Router route extraction
+      index.ts              # Barrel export
   utils/
-    fs.ts, logger.ts, process.ts
+    fs.ts, logger.ts, process.ts, ui.ts
 
 agents/                     # Agent prompt definitions (.md with YAML frontmatter)
 scripts/                    # Bundled runtime scripts (codegen, voice, trace, auth)
@@ -55,6 +71,8 @@ templates/                  # Example files shipped with the package
 - **Integration abstraction**: `inputSource` (jira/linear/none) and `outputTarget` (zephyr/markdown/both) are config-driven. The dispatcher in `integrations/index.ts` routes accordingly.
 - **Scripts use env vars**: `E2E_AI_PROJECT_ROOT`, `E2E_AI_WORKING_DIR`, `E2E_AI_KEY` — set by CLI commands, consumed by scripts.
 - **No SDK dependencies for LLM**: `callLLM.ts` uses raw `fetch()` against OpenAI/Anthropic REST APIs.
+- **Scanner pipeline**: `scan` extracts AST (routes, components, hooks) via regex parsing with file-level caching. `analyze` runs two LLM agents (feature-analyzer → scenario-planner) to produce a QA map. `push` sends the map to a remote API.
+- **Scanner types**: `src/scanner/types.ts` defines both AST types (`ASTScanResult`, `FileNode`, etc.) and QA map V2 types (`FeatureV2`, `WorkflowV2`, `ScenarioV2`, etc.). These are exported from `src/index.ts` for library consumers.
 
 ## Build & Dev
 
