@@ -505,25 +505,21 @@ E2E_AI_API_KEY=key-...          # API key for push command
 
 ## AI Agents
 
-Eight specialized agents live in `agents/*.md`. Each has:
-- **YAML frontmatter**: model, max_tokens, temperature
-- **System prompt**: role + context
-- **Input/Output schemas**: what the agent receives and must produce
-- **Rules**: numbered constraints (e.g. "never remove assertions")
-- **Examples**: concrete input/output pairs
+Nine specialized agents live in `agents/*.md`, numbered by pipeline order. Each has a system prompt, input/output schemas, rules, and examples.
 
-| Agent | Input | Output | Used by |
-|-------|-------|--------|---------|
-| `transcript-agent` | codegen + transcript JSON | Structured narrative with intent mapping | `scenario` |
-| `scenario-agent` | narrative + issue context | YAML test scenario | `scenario` |
-| `playwright-generator-agent` | scenario + project context | `.test.ts` file | `generate` |
-| `refactor-agent` | test + project context | Improved test file | `refine` |
-| `self-healing-agent` | failing test + error output | Diagnosis + patched test | `heal` |
-| `qa-testcase-agent` | test + scenario + issue data | QA markdown + test case JSON | `qa` |
-| `feature-analyzer-agent` | AST scan result | Features, workflows, components JSON | `analyze` |
-| `scenario-planner-agent` | Features + workflows | Complete QA map with scenarios JSON | `analyze` |
+| # | File | Input | Output | Used by |
+|---|------|-------|--------|---------|
+| 0 | `0.init-agent` | Codebase scan | `.e2e-ai/context.md` | `init` (AI chat) |
+| 1.1 | `1_1.transcript-agent` | codegen + transcript JSON | Structured narrative with intent mapping | `scenario` |
+| 1.2 | `1_2.scenario-agent` | narrative + issue context | YAML test scenario | `scenario` |
+| 2 | `2.playwright-generator-agent` | scenario + project context | `.test.ts` file | `generate` |
+| 3 | `3.refactor-agent` | test + project context | Improved test file | `refine` |
+| 4 | `4.self-healing-agent` | failing test + error output | Diagnosis + patched test | `heal` |
+| 5 | `5.qa-testcase-agent` | test + scenario + issue data | QA markdown + test case JSON | `qa` |
+| 6.1 | `6_1.feature-analyzer-agent` | AST scan result | Features, workflows, components JSON | `analyze` |
+| 6.2 | `6_2.scenario-planner-agent` | Features + workflows | Complete QA map with scenarios JSON | `analyze` |
 
-You can customize agent behavior by editing the `.md` files directly. The frontmatter `model` field is the default model for that agent (overridable via `--model` or `config.llm.agentModels`).
+Agents are loaded by bare name (e.g., `loadAgent('scenario-agent')`) — the numbered prefix is resolved automatically. You can customize agent behavior by editing the `.md` files in `.e2e-ai/agents/`.
 
 ## Output Directory Structure
 

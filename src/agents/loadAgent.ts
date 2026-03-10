@@ -1,8 +1,28 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPackageRoot, getProjectRoot } from '../config/loader.ts';
 import type { ResolvedConfig } from '../config/schema.ts';
 import type { AgentPrompt, AgentConfig } from './types.ts';
+
+/**
+ * Resolve an agent file by name. Supports numbered prefixes:
+ * e.g. 'scenario-agent' matches '1_2.scenario-agent.md'
+ * Falls back to exact match: 'scenario-agent.md'
+ */
+function resolveAgentFile(dir: string, agentName: string): string | null {
+  const exact = join(dir, `${agentName}.md`);
+  if (existsSync(exact)) return exact;
+
+  // Search for numbered prefix: <prefix>.<agentName>.md
+  try {
+    const files = readdirSync(dir);
+    const suffix = `.${agentName}.md`;
+    const match = files.find(f => f.endsWith(suffix));
+    if (match) return join(dir, match);
+  } catch {}
+
+  return null;
+}
 
 /**
  * Load an agent prompt with optional two-part composition:
@@ -12,15 +32,19 @@ import type { AgentPrompt, AgentConfig } from './types.ts';
  * When `config` is provided, per-agent model overrides are applied.
  */
 export function loadAgent(agentName: string, config?: ResolvedConfig): AgentPrompt {
-  const localPath = join(getProjectRoot(), '.e2e-ai', 'agents', `${agentName}.md`);
-  const packagePath = join(getPackageRoot(), 'agents', `${agentName}.md`);
-  const filePath = existsSync(localPath) ? localPath : packagePath;
+  const localDir = join(getProjectRoot(), '.e2e-ai', 'agents');
+  const packageDir = join(getPackageRoot(), 'agents');
+  const filePath = resolveAgentFile(localDir, agentName) ?? resolveAgentFile(packageDir, agentName);
+
+  if (!filePath) {
+    throw new Error(`Agent file not found for "${agentName}" in ${localDir} or ${packageDir}`);
+  }
 
   let content: string;
   try {
     content = readFileSync(filePath, 'utf-8');
   } catch {
-    throw new Error(`Agent file not found: ${filePath}`);
+    throw new Error(`Agent file not readable: ${filePath}`);
   }
 
   const { frontmatter, body } = parseFrontmatter(content);

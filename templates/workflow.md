@@ -232,7 +232,16 @@ After running the pipeline for `PROJ-101`:
   config.ts              ← your configuration
   context.md             ← project context (teach AI your conventions)
   workflow.md            ← this file
-  agents/                ← AI agent prompts (customizable)
+  agents/                ← AI agent prompts (numbered by pipeline order)
+    0.init-agent.md
+    1_1.transcript-agent.md
+    1_2.scenario-agent.md
+    2.playwright-generator-agent.md
+    3.refactor-agent.md
+    4.self-healing-agent.md
+    5.qa-testcase-agent.md
+    6_1.feature-analyzer-agent.md
+    6_2.scenario-planner-agent.md
   PROJ-101/              ← working files (codegen, recordings)
 
 e2e/

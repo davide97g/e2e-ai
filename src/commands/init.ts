@@ -15,47 +15,44 @@ export function registerInit(program: Command) {
     .action(async (cmdOpts?: any) => {
       const projectRoot = getProjectRoot();
       const e2eDir = join(projectRoot, '.e2e-ai');
+      const nonInteractive = !!cmdOpts?.nonInteractive;
+      const configPath = join(e2eDir, 'config.ts');
+      const isReInit = fileExists(configPath);
+
       log.header('e2e-ai init');
 
-      // Part A: CLI config prompts
-      const answers = cmdOpts?.nonInteractive
-        ? getDefaultAnswers()
-        : await askConfigQuestions();
+      if (isReInit) {
+        // --- Re-init: preserve config + context, only update agents & workflow ---
+        log.info('Existing .e2e-ai/ detected — preserving config and context.\n');
 
-      // Write config to .e2e-ai/config.ts
-      const config = buildConfigFromAnswers(answers);
-      const configPath = join(e2eDir, 'config.ts');
-
-      if (fileExists(configPath)) {
-        log.warn(`Config already exists: ${configPath}`);
-        const overwrite = cmdOpts?.nonInteractive
-          ? false
-          : await confirm({ message: 'Overwrite existing config?', default: false });
-        if (!overwrite) {
-          log.info('Skipping config generation');
-        } else {
-          writeFile(configPath, generateConfigFile(config));
-          log.success(`Config written: ${configPath}`);
-        }
+        await copyAgentsToLocal(projectRoot, nonInteractive);
+        await copyWorkflowGuide(projectRoot, nonInteractive);
       } else {
+        // --- Fresh init: config + agents + workflow ---
+        const answers = nonInteractive
+          ? getDefaultAnswers()
+          : await askConfigQuestions();
+
+        const config = buildConfigFromAnswers(answers);
         writeFile(configPath, generateConfigFile(config));
         log.success(`Config written: ${configPath}`);
+
+        await copyAgentsToLocal(projectRoot, nonInteractive);
+        await copyWorkflowGuide(projectRoot, nonInteractive);
       }
-
-      // Part B: Copy agents to .e2e-ai/agents/
-      await copyAgentsToLocal(projectRoot, !!cmdOpts?.nonInteractive);
-
-      // Part C: Copy workflow guide to .e2e-ai/workflow.md
-      copyWorkflowGuide(projectRoot);
 
       // Print next steps
       console.log('');
       log.success('Initialization complete!\n');
-      console.log(pc.bold('Next steps:'));
-      console.log(`  1. Use the ${pc.cyan('init-agent')} in your AI tool to generate ${pc.cyan('.e2e-ai/context.md')}`);
-      console.log(`     (or use the MCP server: ${pc.cyan('e2e_ai_scan_codebase')} + ${pc.cyan('e2e_ai_read_agent')})`);
-      console.log(`  2. Review the generated ${pc.cyan('.e2e-ai/context.md')}`);
-      console.log(`  3. Run: ${pc.cyan('e2e-ai run --key PROJ-101')}`);
+      if (!isReInit) {
+        console.log(pc.bold('Next steps:'));
+        console.log(`  1. Use the ${pc.cyan('init-agent')} in your AI tool to generate ${pc.cyan('.e2e-ai/context.md')}`);
+        console.log(`     (or use the MCP server: ${pc.cyan('e2e_ai_scan_codebase')} + ${pc.cyan('e2e_ai_read_agent')})`);
+        console.log(`  2. Review the generated ${pc.cyan('.e2e-ai/context.md')}`);
+        console.log(`  3. Run: ${pc.cyan('e2e-ai run --key PROJ-101')}`);
+      } else {
+        console.log(pc.dim('Config and context.md were preserved. Only agents and workflow were checked.'));
+      }
     });
 }
 
@@ -197,8 +194,8 @@ async function copyAgentsToLocal(projectRoot: string, nonInteractive: boolean): 
         return 0;
       }
       const overwrite = await confirm({
-        message: `Agent files already exist in .e2e-ai/agents/ (${existingFiles.length} files). Overwrite?`,
-        default: false,
+        message: `Update agents to latest version? (${agentFiles.length} files, currently ${existingFiles.length} in .e2e-ai/agents/)`,
+        default: true,
       });
       if (!overwrite) {
         log.info('Skipping agent copy');
@@ -217,13 +214,27 @@ async function copyAgentsToLocal(projectRoot: string, nonInteractive: boolean): 
   return agentFiles.length;
 }
 
-function copyWorkflowGuide(projectRoot: string) {
+async function copyWorkflowGuide(projectRoot: string, nonInteractive: boolean) {
   const packageRoot = getPackageRoot();
   const source = join(packageRoot, 'templates', 'workflow.md');
   const target = join(projectRoot, '.e2e-ai', 'workflow.md');
 
   if (!existsSync(source)) return;
-  if (existsSync(target)) return; // don't overwrite existing
+
+  if (existsSync(target)) {
+    if (nonInteractive) {
+      log.info('Workflow guide already exists, skipping');
+      return;
+    }
+    const overwrite = await confirm({
+      message: 'Update workflow.md to latest version?',
+      default: true,
+    });
+    if (!overwrite) {
+      log.info('Skipping workflow guide update');
+      return;
+    }
+  }
 
   const content = readFileSync(source, 'utf-8');
   writeFile(target, content);

@@ -60,7 +60,16 @@ src/
   utils/
     fs.ts, logger.ts, process.ts, ui.ts, scan.ts, validateContext.ts
 
-agents/                     # Agent prompt definitions (.md with YAML frontmatter)
+agents/                     # Agent prompt definitions (.md), numbered by pipeline order
+  0.init-agent.md           # Setup
+  1_1.transcript-agent.md   # Scenario: voice → narrative
+  1_2.scenario-agent.md     # Scenario: narrative → YAML
+  2.playwright-generator-agent.md  # Generate test
+  3.refactor-agent.md       # Refine test
+  4.self-healing-agent.md   # Heal failing tests
+  5.qa-testcase-agent.md    # QA documentation
+  6_1.feature-analyzer-agent.md    # Scanner: AST → features
+  6_2.scenario-planner-agent.md    # Scanner: features → scenarios
 scripts/                    # Bundled runtime scripts (codegen, voice, trace, auth)
 templates/                  # Example files shipped with the package
 ```
@@ -123,7 +132,8 @@ function nested<T extends z.ZodRawShape>(shape: T) {
 ### Agent Loading
 ```typescript
 // loadAgent('scenario-agent', config) does:
-// 1. Read .e2e-ai/agents/scenario-agent.md (or fallback to package defaults)
+// 1. Resolve file: finds *.scenario-agent.md (numbered prefix) or scenario-agent.md
+//    Prefers .e2e-ai/agents/ over package defaults
 // 2. Read .e2e-ai/context.md from user's project (if exists)
 // 3. Compose: generic + "\n\n## Project Context\n\n" + context
 // 4. Apply per-agent model overrides from config.llm.agentModels

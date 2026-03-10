@@ -26,14 +26,15 @@ NEVER run multiple pipeline steps at once. Each step is a separate job with its 
 ## Protocol
 
 1. **Plan first.** Call \`e2e_ai_plan_workflow\` with the user's goal. This returns a structured todo list of steps.
-2. **Present the plan.** Show the user the ordered step list with descriptions. Ask for confirmation or adjustments before proceeding.
-3. **Execute one step at a time.** For each step in the approved plan:
+2. **Check prerequisites.** The plan includes a \`ready\` boolean and \`missingPrerequisites\` array. If \`ready\` is false, show the user what's missing (API keys, config, etc.) and **wait for them to fix it** before proceeding. Do NOT attempt to execute any step while prerequisites are missing.
+3. **Present the plan.** Show the user the ordered step list with descriptions. Ask for confirmation or adjustments before proceeding.
+4. **Execute one step at a time.** For each step in the approved plan:
    a. Tell the user which step you're about to run and why.
    b. Call \`e2e_ai_execute_step\` with the step name and parameters.
    c. Report the result to the user (success, key output, any warnings).
    d. If the step fails, stop and discuss with the user before continuing.
    e. Move to the next step only after the current one succeeds.
-4. **Use subagents when available.** If your AI platform supports subagents (e.g., Claude Code Agent tool), dispatch each step as a dedicated subagent to preserve context. Each subagent should:
+5. **Use subagents when available.** If your AI platform supports subagents (e.g., Claude Code Agent tool), dispatch each step as a dedicated subagent to preserve context. Each subagent should:
    - Receive only the context it needs (step name, key, relevant file paths)
    - Call \`e2e_ai_execute_step\` to do its work
    - Return the result to the orchestrator
@@ -169,6 +170,112 @@ const SCANNER_PIPELINE_STEPS: StepDef[] = [
 const ALL_STEPS = [...TEST_PIPELINE_STEPS, ...SCANNER_PIPELINE_STEPS];
 
 // ---------------------------------------------------------------------------
+// Prerequisite checks
+// ---------------------------------------------------------------------------
+
+/** Which env vars / files each step needs */
+const STEP_REQUIREMENTS: Record<string, {
+  envVars: Array<{ name: string; reason: string; onlyIf?: () => boolean }>;
+  files?: Array<{ path: string; label: string }>;
+}> = {
+  record:     { envVars: [] },
+  transcribe: { envVars: [{ name: 'OPENAI_API_KEY', reason: 'Whisper transcription requires OpenAI API key' }] },
+  scenario:   { envVars: [
+    { name: 'OPENAI_API_KEY', reason: 'LLM calls require OpenAI API key', onlyIf: () => getProvider() === 'openai' },
+    { name: 'ANTHROPIC_API_KEY', reason: 'LLM calls require Anthropic API key', onlyIf: () => getProvider() === 'anthropic' },
+  ]},
+  generate:   { envVars: [
+    { name: 'OPENAI_API_KEY', reason: 'LLM calls require OpenAI API key', onlyIf: () => getProvider() === 'openai' },
+    { name: 'ANTHROPIC_API_KEY', reason: 'LLM calls require Anthropic API key', onlyIf: () => getProvider() === 'anthropic' },
+  ]},
+  refine:     { envVars: [
+    { name: 'OPENAI_API_KEY', reason: 'LLM calls require OpenAI API key', onlyIf: () => getProvider() === 'openai' },
+    { name: 'ANTHROPIC_API_KEY', reason: 'LLM calls require Anthropic API key', onlyIf: () => getProvider() === 'anthropic' },
+  ]},
+  test:       { envVars: [] },
+  heal:       { envVars: [
+    { name: 'OPENAI_API_KEY', reason: 'LLM calls require OpenAI API key', onlyIf: () => getProvider() === 'openai' },
+    { name: 'ANTHROPIC_API_KEY', reason: 'LLM calls require Anthropic API key', onlyIf: () => getProvider() === 'anthropic' },
+  ]},
+  qa:         { envVars: [
+    { name: 'OPENAI_API_KEY', reason: 'LLM calls require OpenAI API key', onlyIf: () => getProvider() === 'openai' },
+    { name: 'ANTHROPIC_API_KEY', reason: 'LLM calls require Anthropic API key', onlyIf: () => getProvider() === 'anthropic' },
+  ]},
+  scan:       { envVars: [] },
+  analyze:    { envVars: [
+    { name: 'OPENAI_API_KEY', reason: 'LLM calls require OpenAI API key', onlyIf: () => getProvider() === 'openai' },
+    { name: 'ANTHROPIC_API_KEY', reason: 'LLM calls require Anthropic API key', onlyIf: () => getProvider() === 'anthropic' },
+  ]},
+  push:       { envVars: [
+    { name: 'E2E_AI_API_URL', reason: 'Push requires API URL (set E2E_AI_API_URL or push.apiUrl in config)' },
+    { name: 'E2E_AI_API_KEY', reason: 'Push requires API key (set E2E_AI_API_KEY or push.apiKey in config)' },
+  ]},
+};
+
+function getProvider(): string {
+  return process.env.AI_PROVIDER ?? 'openai';
+}
+
+interface PrerequisiteIssue {
+  type: 'env_var' | 'file';
+  name: string;
+  reason: string;
+  stepsAffected: string[];
+}
+
+function checkPrerequisites(stepNames: string[]): {
+  ready: boolean;
+  missing: PrerequisiteIssue[];
+} {
+  const issueMap = new Map<string, PrerequisiteIssue>();
+
+  for (const stepName of stepNames) {
+    const reqs = STEP_REQUIREMENTS[stepName];
+    if (!reqs) continue;
+
+    for (const envReq of reqs.envVars) {
+      // Skip if conditional and condition not met
+      if (envReq.onlyIf && !envReq.onlyIf()) continue;
+
+      if (!process.env[envReq.name]) {
+        const key = `env:${envReq.name}`;
+        if (issueMap.has(key)) {
+          issueMap.get(key)!.stepsAffected.push(stepName);
+        } else {
+          issueMap.set(key, {
+            type: 'env_var',
+            name: envReq.name,
+            reason: envReq.reason,
+            stepsAffected: [stepName],
+          });
+        }
+      }
+    }
+
+    if (reqs.files) {
+      for (const fileReq of reqs.files) {
+        if (!existsSync(fileReq.path)) {
+          const key = `file:${fileReq.path}`;
+          if (issueMap.has(key)) {
+            issueMap.get(key)!.stepsAffected.push(stepName);
+          } else {
+            issueMap.set(key, {
+              type: 'file',
+              name: fileReq.label,
+              reason: `File not found: ${fileReq.path}`,
+              stepsAffected: [stepName],
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const missing = Array.from(issueMap.values());
+  return { ready: missing.length === 0, missing };
+}
+
+// ---------------------------------------------------------------------------
 // Planner logic
 // ---------------------------------------------------------------------------
 
@@ -185,6 +292,8 @@ interface PlannedStep {
 interface WorkflowPlan {
   goal: string;
   pipeline: 'test' | 'scanner' | 'single';
+  ready: boolean;
+  missingPrerequisites: PrerequisiteIssue[];
   steps: PlannedStep[];
   notes: string[];
 }
@@ -299,7 +408,10 @@ function planWorkflow(goal: string, options: {
     notes.push('No --key provided. Use --key <ISSUE-KEY> to organize files by issue.');
   }
 
-  return { goal, pipeline, steps, notes };
+  // Check prerequisites for all planned steps
+  const prereqs = checkPrerequisites(steps.map(s => s.name));
+
+  return { goal, pipeline, ready: prereqs.ready, missingPrerequisites: prereqs.missing, steps, notes };
 }
 
 // ---------------------------------------------------------------------------
@@ -366,7 +478,7 @@ function executeStep(
 // ---------------------------------------------------------------------------
 
 const server = new McpServer(
-  { name: 'e2e-ai', version: '1.2.0' },
+  { name: 'e2e-ai', version: '1.5.0' },
   { instructions: SERVER_INSTRUCTIONS },
 );
 
@@ -524,6 +636,27 @@ server.registerTool(
         content: [{
           type: 'text',
           text: `Error: Unknown step "${step}". Valid steps: ${validSteps.join(', ')}`,
+        }],
+        isError: true,
+      };
+    }
+
+    // Check prerequisites before running
+    const prereqs = checkPrerequisites([step]);
+    if (!prereqs.ready) {
+      const lines = prereqs.missing.map(m =>
+        `- ${m.type === 'env_var' ? `Set ${m.name}` : m.name}: ${m.reason}`
+      );
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            step,
+            success: false,
+            blocked: true,
+            missingPrerequisites: prereqs.missing,
+            message: `Cannot run "${step}" — missing prerequisites:\n${lines.join('\n')}\n\nAsk the user to provide these before retrying.`,
+          }, null, 2),
         }],
         isError: true,
       };
