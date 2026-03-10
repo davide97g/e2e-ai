@@ -14,6 +14,10 @@ record → transcribe → scenario → generate → refine → test → heal →
 
 **In short:** You record yourself testing in the browser (optionally narrating what you're doing), and e2e-ai turns that into a production-ready Playwright test with QA documentation.
 
+**Two ways to run it:**
+- **CLI**: Run commands directly (`e2e-ai run --key PROJ-101`)
+- **AI assistant**: Ask your AI tool (Claude Code, Cursor, etc.) — the MCP server guides it through the pipeline step by step, asking for your approval before starting
+
 ---
 
 ## Setup
@@ -195,6 +199,27 @@ e2e-ai push
 ```
 
 This is independent from the test pipeline — use it to get an overview of your app's testable surface.
+
+---
+
+## AI-Assisted Workflow (MCP)
+
+If you have the e2e-ai MCP server configured, you can ask your AI assistant to run the pipeline for you. The MCP server teaches the AI how to orchestrate the workflow:
+
+1. **You say:** "Run the full test pipeline for PROJ-101" (or any variation)
+2. **AI plans:** Calls `e2e_ai_plan_workflow` → gets an ordered step list
+3. **AI shows plan:** Presents the steps and asks for your approval
+4. **You adjust:** "Skip voice" / "Start from generate" / "Looks good, go"
+5. **AI executes:** Runs each step one at a time via `e2e_ai_execute_step`, reporting results between steps
+
+Each step runs as a separate subagent (when supported by the AI platform) to keep context clean and focused. If a step fails, the AI stops and asks you what to do.
+
+**Example prompts you can give your AI assistant:**
+- "Run the full pipeline for PROJ-101"
+- "Generate a test from the existing recording for PROJ-101, skip voice"
+- "Just run test and heal for PROJ-101"
+- "Scan the codebase and analyze features"
+- "Refactor the test for PROJ-101"
 
 ---
 

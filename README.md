@@ -598,6 +598,16 @@ If e2e-ai is installed globally or as a project dependency, you can use the bina
 
 ### Available Tools
 
+#### Orchestration (workflow automation)
+
+| Tool | Description | Input |
+|------|-------------|-------|
+| `e2e_ai_plan_workflow` | Plan an automation workflow — returns an ordered todo list of steps | `goal`, `key?`, `from?`, `skip?`, `voice?`, `trace?`, `scanDir?` |
+| `e2e_ai_execute_step` | Execute a single pipeline step | `step`, `key?`, `voice?`, `trace?`, `scanDir?`, `output?`, `extraArgs?` |
+| `e2e_ai_get_workflow_guide` | Get the full workflow guide explaining how the pipeline works | (none) |
+
+#### Project setup
+
 | Tool | Description | Input |
 |------|-------------|-------|
 | `e2e_ai_scan_codebase` | Scan project for test files, configs, fixtures, path aliases, and sample test content | `projectRoot?` (defaults to cwd) |
@@ -605,16 +615,35 @@ If e2e-ai is installed globally or as a project dependency, you can use the bina
 | `e2e_ai_read_agent` | Load an agent prompt by name — returns system prompt + config | `agentName` (e.g. `scenario-agent`) |
 | `e2e_ai_get_example` | Get the example context markdown template | (none) |
 
-### Usage with AI Assistants
+### How AI Orchestration Works
 
-Once configured, an AI assistant can:
+The MCP server includes built-in orchestration instructions that teach AI assistants (Claude Code, Cursor, etc.) how to run e2e-ai workflows autonomously. The protocol is:
 
-1. **Scan your project** to understand its test structure, fixtures, and conventions
-2. **Read agent prompts** to understand how each pipeline step works
-3. **Validate context files** to ensure they have the right format before running commands
-4. **Get the example template** as a starting point for writing `e2e-ai.context.md`
+1. **Plan** — The AI calls `e2e_ai_plan_workflow` with your goal. It returns an ordered step list.
+2. **Approve** — The AI presents the plan to you for review. You can adjust steps before proceeding.
+3. **Execute** — The AI runs each step one at a time via `e2e_ai_execute_step`, reporting results between steps. If a step fails, it stops and asks you how to proceed.
 
-This enables AI assistants to help you set up e2e-ai, debug pipeline issues, and generate better project context files.
+Each step is executed as a separate job (ideally a subagent) to keep context clean. The AI never runs multiple pipeline steps at once.
+
+**Example interaction:**
+
+> **You:** "Run the full test pipeline for PROJ-101"
+>
+> **AI:** *Calls `e2e_ai_plan_workflow`*, then presents:
+> 1. `record` — Launch browser codegen + voice recording
+> 2. `transcribe` — Transcribe voice via Whisper
+> 3. `scenario` — Generate YAML test scenario
+> 4. `generate` — Generate Playwright test
+> 5. `refine` — Refactor test with AI
+> 6. `test` — Run Playwright test
+> 7. `heal` — Self-heal if failing (can skip if test passes)
+> 8. `qa` — Generate QA documentation
+>
+> "Does this look right? Ready to start?"
+>
+> **You:** "Skip voice, go ahead"
+>
+> **AI:** *Removes transcribe, executes each step sequentially*
 
 ## Library API
 

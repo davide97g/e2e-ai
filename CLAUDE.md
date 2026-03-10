@@ -56,8 +56,9 @@ src/
     extractors/
       routes.ts             # Next.js App Router + Pages Router route extraction
       index.ts              # Barrel export
+  mcp.ts                    # MCP server: tools + orchestration instructions + step executor
   utils/
-    fs.ts, logger.ts, process.ts, ui.ts
+    fs.ts, logger.ts, process.ts, ui.ts, scan.ts, validateContext.ts
 
 agents/                     # Agent prompt definitions (.md with YAML frontmatter)
 scripts/                    # Bundled runtime scripts (codegen, voice, trace, auth)
@@ -74,6 +75,7 @@ templates/                  # Example files shipped with the package
 - **No SDK dependencies for LLM**: `callLLM.ts` uses raw `fetch()` against OpenAI/Anthropic REST APIs.
 - **Scanner pipeline**: `scan` extracts AST (routes, components, hooks) via regex parsing with file-level caching. `analyze` runs two LLM agents (feature-analyzer → scenario-planner) to produce a QA map. `push` sends the map to a remote API.
 - **Scanner types**: `src/scanner/types.ts` defines both AST types (`ASTScanResult`, `FileNode`, etc.) and QA map V2 types (`FeatureV2`, `WorkflowV2`, `ScenarioV2`, etc.). These are exported from `src/index.ts` for library consumers.
+- **MCP server orchestration**: `src/mcp.ts` provides server-level `instructions` that teach AI assistants the plan→approve→execute protocol. `e2e_ai_plan_workflow` generates ordered step lists, `e2e_ai_execute_step` shells out to the CLI one step at a time. AI platforms with subagent support dispatch each step as a separate subagent.
 
 ## Build & Dev
 
