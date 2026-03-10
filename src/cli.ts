@@ -14,6 +14,7 @@ import { registerRun } from './commands/run.ts';
 import { registerInit } from './commands/init.ts';
 import { registerScan } from './commands/scan.ts';
 import { registerPush } from './commands/push.ts';
+import { registerAnalyze } from './commands/analyze.ts';
 
 const program = new Command();
 
@@ -49,5 +50,6 @@ registerQa(program);
 registerRun(program);
 registerScan(program);
 registerPush(program);
+registerAnalyze(program);
 
 program.parse();
