@@ -45,6 +45,9 @@ export function registerInit(program: Command) {
       // Part B: Copy agents to .e2e-ai/agents/
       await copyAgentsToLocal(projectRoot, !!cmdOpts?.nonInteractive);
 
+      // Part C: Copy workflow guide to .e2e-ai/workflow.md
+      copyWorkflowGuide(projectRoot);
+
       // Print next steps
       console.log('');
       log.success('Initialization complete!\n');
@@ -212,4 +215,17 @@ async function copyAgentsToLocal(projectRoot: string, nonInteractive: boolean): 
 
   log.success(`Agents copied to .e2e-ai/agents/ (${agentFiles.length} files)`);
   return agentFiles.length;
+}
+
+function copyWorkflowGuide(projectRoot: string) {
+  const packageRoot = getPackageRoot();
+  const source = join(packageRoot, 'templates', 'workflow.md');
+  const target = join(projectRoot, '.e2e-ai', 'workflow.md');
+
+  if (!existsSync(source)) return;
+  if (existsSync(target)) return; // don't overwrite existing
+
+  const content = readFileSync(source, 'utf-8');
+  writeFile(target, content);
+  log.success('Workflow guide written to .e2e-ai/workflow.md');
 }
