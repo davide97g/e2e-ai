@@ -1,9 +1,5 @@
 ---
 agent: scenario-agent
-version: "1.0"
-model: gpt-4o
-max_tokens: 4096
-temperature: 0.2
 ---
 
 # System Prompt

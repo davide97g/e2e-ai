@@ -1,9 +1,5 @@
 ---
 agent: refactor-agent
-version: "1.0"
-model: gpt-4o
-max_tokens: 8192
-temperature: 0.2
 ---
 
 # System Prompt

@@ -3,22 +3,24 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { E2eAiConfigSchema, type ResolvedConfig } from './schema.ts';
 
-const CONFIG_FILENAMES = ['e2e-ai.config.ts', 'e2e-ai.config.js', 'e2e-ai.config.mjs'];
+const CONFIG_DIR = '.e2e-ai';
+const CONFIG_FILENAMES = ['config.ts', 'config.js', 'config.mjs'];
 
 let cachedConfig: ResolvedConfig | null = null;
 let cachedProjectRoot: string | null = null;
 
 /**
- * Search upward from `startDir` for a config file.
- * Returns the directory containing it, or null.
+ * Search upward from `startDir` for a `.e2e-ai/` directory containing a config file.
+ * Returns the project directory (parent of `.e2e-ai/`), or null.
  */
 function findConfigDir(startDir: string): string | null {
   let dir = resolve(startDir);
   const root = dirname(dir) === dir ? dir : undefined; // filesystem root
 
   while (true) {
+    const e2eDir = join(dir, CONFIG_DIR);
     for (const name of CONFIG_FILENAMES) {
-      if (existsSync(join(dir, name))) {
+      if (existsSync(join(e2eDir, name))) {
         return dir;
       }
     }
@@ -29,7 +31,7 @@ function findConfigDir(startDir: string): string | null {
 }
 
 /**
- * Discover project root: the directory containing `e2e-ai.config.*`.
+ * Discover project root: the directory containing `.e2e-ai/config.*`.
  * Falls back to `process.cwd()` if no config file is found.
  */
 export function getProjectRoot(): string {
@@ -56,16 +58,18 @@ export function getPackageRoot(): string {
 
 /**
  * Load, validate, and cache the user config.
+ * Looks for `.e2e-ai/config.{ts,js,mjs}` in the project root.
  * Merges user values with schema defaults via Zod.
  */
 export async function loadConfig(): Promise<ResolvedConfig> {
   if (cachedConfig) return cachedConfig;
 
   const projectRoot = getProjectRoot();
+  const e2eDir = join(projectRoot, CONFIG_DIR);
   let userConfig: Record<string, unknown> = {};
 
   for (const name of CONFIG_FILENAMES) {
-    const configPath = join(projectRoot, name);
+    const configPath = join(e2eDir, name);
     if (existsSync(configPath)) {
       try {
         const fileUrl = pathToFileURL(configPath).href;
