@@ -129,8 +129,54 @@ console.error(`Voice recording: ${voiceEnabled ? 'ENABLED' : 'disabled (--no-voi
 console.error(`Trace replay:    ${traceEnabled ? 'ENABLED' : 'disabled (--no-trace)'}`);
 console.error('(When you close the Playwright Inspector, the file is written there.)\n');
 
+// --- Session timing (always track, used for action timestamps) ---
+const sessionStartTime = Date.now();
+
+// --- Action timestamp tracking via file polling ---
+const actionPattern = /^\s*(await\s+page\.|await\s+expect\()/;
+let prevActionCount = 0;
+const actionElapsedSec = []; // elapsed seconds for each action, in order
+let pollInterval = null;
+
+function startActionPolling() {
+  pollInterval = setInterval(() => {
+    if (!existsSync(outputPath)) return;
+    try {
+      const content = readFileSync(outputPath, 'utf-8');
+      const actionLines = content.split('\n').filter((l) => actionPattern.test(l));
+      const newCount = actionLines.length;
+      if (newCount > prevActionCount) {
+        const elapsed = (Date.now() - sessionStartTime) / 1000;
+        for (let i = prevActionCount; i < newCount; i++) {
+          actionElapsedSec.push(elapsed);
+        }
+        prevActionCount = newCount;
+      }
+    } catch {
+      // File might be mid-write — ignore
+    }
+  }, 500);
+}
+
+/** Inject // @t:<seconds>s comments above each action line in the codegen file. */
+function injectActionTimestamps(filePath) {
+  if (actionElapsedSec.length === 0) return;
+  const content = readFileSync(filePath, 'utf-8');
+  const lines = content.split('\n');
+  const result = [];
+  let idx = 0;
+  for (const line of lines) {
+    if (actionPattern.test(line) && idx < actionElapsedSec.length) {
+      const indent = line.match(/^(\s*)/)[1];
+      result.push(`${indent}// @t:${actionElapsedSec[idx].toFixed(1)}s`);
+      idx++;
+    }
+    result.push(line);
+  }
+  writeFileSync(filePath, result.join('\n'));
+}
+
 // --- Voice setup ---
-let sessionStartTime = null;
 let recording = false;
 let currentRecProcess = null;
 let segmentIndex = 0;
@@ -146,8 +192,6 @@ if (voiceEnabled) {
   if (!existsSync(recordingsDir)) {
     mkdirSync(recordingsDir, { recursive: true });
   }
-
-  sessionStartTime = Date.now();
 
   const segPath = resolve(recordingsDir, `seg-${String(segmentIndex).padStart(3, '0')}.wav`);
   segmentPaths.push(segPath);
@@ -181,7 +225,11 @@ if (!existsSync(storageStatePath)) {
 }
 
 // Spawn codegen with --load-storage (skip login) and --save-storage (update cache)
+const harPath = traceEnabled ? resolve(issueDir, `har-${timestamp}.har`) : null;
 const codegenArgs = ['playwright', 'codegen', '--output', outputPath];
+if (traceEnabled && harPath) {
+  codegenArgs.push('--save-har', harPath);
+}
 if (existsSync(storageStatePath)) {
   codegenArgs.push('--load-storage', storageStatePath);
   codegenArgs.push('--save-storage', storageStatePath);
@@ -194,6 +242,9 @@ const child = spawn('npx', codegenArgs, {
   cwd: root,
   shell: true,
 });
+
+// Start polling the output file for new actions to capture timestamps
+startActionPolling();
 
 // --- Keyboard listener for pause/resume ---
 if (voiceEnabled && process.stdin.isTTY) {
@@ -238,16 +289,20 @@ function cleanupTerminal() {
 
 child.on('exit', async (code) => {
   cleanupTerminal();
+  if (pollInterval) clearInterval(pollInterval);
 
   if (code === 0) {
     console.error(`\nSaved: ${outputRelative}`);
   }
 
-  // --- Voice post-processing ---
-  if (voiceEnabled && segmentPaths.length > 0) {
-    const sessionEndTime = Date.now();
-    const durationSec = (sessionEndTime - sessionStartTime) / 1000;
+  // --- Inject action timestamps into codegen output ---
+  if (existsSync(outputPath) && actionElapsedSec.length > 0) {
+    injectActionTimestamps(outputPath);
+    console.error(`Injected ${actionElapsedSec.length} action timestamp(s) into: ${outputRelative}`);
+  }
 
+  // --- Voice post-processing: merge WAV segments only (transcription deferred to transcribe command) ---
+  if (voiceEnabled && segmentPaths.length > 0) {
     try {
       if (recording && currentRecProcess) {
         const { stopRecording } = await import(resolve(__dirname, 'voice', 'recorder.mjs'));
@@ -260,51 +315,32 @@ child.on('exit', async (code) => {
 
       if (existingSegments.length === 0) {
         console.error('No audio segments recorded.');
-        process.exit(code ?? 0);
-        return;
-      }
-
-      const mergedWavPath = resolve(recordingsDir, `voice-${timestamp}.wav`);
-
-      if (existingSegments.length === 1) {
-        renameSync(existingSegments[0], mergedWavPath);
       } else {
-        console.error(`Merging ${existingSegments.length} audio segments...`);
-        const args = ['--combine', 'concatenate', ...existingSegments, mergedWavPath];
-        execSync(`sox ${args.map((a) => `"${a}"`).join(' ')}`, { stdio: 'ignore' });
+        const mergedWavPath = resolve(recordingsDir, `voice-${timestamp}.wav`);
 
-        for (const seg of existingSegments) {
-          try { unlinkSync(seg); } catch {}
+        if (existingSegments.length === 1) {
+          renameSync(existingSegments[0], mergedWavPath);
+        } else {
+          console.error(`Merging ${existingSegments.length} audio segments...`);
+          const args = ['--combine', 'concatenate', ...existingSegments, mergedWavPath];
+          execSync(`sox ${args.map((a) => `"${a}"`).join(' ')}`, { stdio: 'ignore' });
+
+          for (const seg of existingSegments) {
+            try { unlinkSync(seg); } catch {}
+          }
         }
+
+        console.error(`\nVoice recording summary:`);
+        console.error(`  Audio:   ${relative(root, mergedWavPath)}`);
+        console.error(`  Codegen: ${outputRelative}`);
+        console.error(`  (Run 'transcribe' to process voice → merge into codegen)`);
       }
-
-      console.error(`Audio saved: ${relative(root, mergedWavPath)}`);
-
-      const { transcribe } = await import(resolve(__dirname, 'voice', 'transcriber.mjs'));
-      const segments = await transcribe(mergedWavPath);
-
-      const transcriptPath = resolve(recordingsDir, `voice-${timestamp}.json`);
-      writeFileSync(transcriptPath, JSON.stringify(segments, null, 2));
-      console.error(`Transcript saved: ${relative(root, transcriptPath)}`);
-
-      if (segments.length > 0 && existsSync(outputPath)) {
-        const { merge } = await import(resolve(__dirname, 'voice', 'merger.mjs'));
-        const codegenContent = readFileSync(outputPath, 'utf-8');
-        const annotated = merge(codegenContent, segments, durationSec);
-        writeFileSync(outputPath, annotated);
-        console.error(`Merged ${segments.length} voice segment(s) into: ${outputRelative}`);
-      }
-
-      console.error('\nVoice recording summary:');
-      console.error(`  Audio:      ${relative(root, mergedWavPath)}`);
-      console.error(`  Transcript: ${relative(root, transcriptPath)}`);
-      console.error(`  Codegen:    ${outputRelative}`);
     } catch (err) {
       console.error(`\nVoice processing error: ${err.message}`);
     }
   }
 
-  // --- Trace: inject test.use and replay ---
+  // --- Trace: inject test.use({ trace: 'on' }) and run replay to generate trace ---
   if (existsSync(outputPath)) {
     const codegenSrc = readFileSync(outputPath, 'utf-8');
     if (!codegenSrc.includes("test.use({ trace: 'on' })")) {
@@ -331,6 +367,10 @@ child.on('exit', async (code) => {
         console.error('Trace replay failed (codegen file is still saved).');
       }
     }
+  }
+
+  if (harPath && existsSync(harPath)) {
+    console.error(`HAR saved: ${relative(root, harPath)}`);
   }
 
   process.exit(code ?? 0);
